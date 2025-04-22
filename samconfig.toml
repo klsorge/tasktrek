@@ -16,6 +16,10 @@ lint = true
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
 resolve_s3 = true
+s3_prefix = "tasktrek"
+region = "us-east-2"
+image_repositories = []
+parameter_overrides = "StageName=\"dev\""
 
 [default.package.parameters]
 resolve_s3 = true

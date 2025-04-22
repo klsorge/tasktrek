@@ -1,0 +1,20 @@
+{
+  "name": "src",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "mocha __tests__"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/klsorge/tasktrek.git"
+  },
+  "private": true,
+  "devDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.788.0",
+    "@aws-sdk/lib-dynamodb": "^3.789.0",
+    "chai": "^5.2.0",
+    "mocha": "^11.1.0"
+  }
+}

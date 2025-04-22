@@ -5,37 +5,226 @@ Description: >
 
   Sample SAM Template for tasktrek
   
-# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
 Globals:
   Function:
+    CodeUri: backend/src/handlers/
+    Runtime: nodejs20.x
+    Architectures:
+      - x86_64
     Timeout: 3
 
+Parameters:
+  StageName:
+    Type: String
+    Default: dev
+
 Resources:
-  HelloWorldFunction:
-    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+  TasksGatewayApi:
+    Type: AWS::Serverless::Api
     Properties:
-      CodeUri: backend/hello-world/
-      Handler: app.lambdaHandler
-      Runtime: nodejs20.x
-      Architectures:
-        - x86_64
+      StageName: !Ref StageName
+      Cors:
+        AllowMethods: "'*'"
+        AllowHeaders: "'*'"
+        AllowOrigin: "'*'"
+
+  CreateTask:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: create-task.lambdaHandler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Environment:
+        Variables:
+          TASKS_TABLE: !Ref TasksTable
+      #          LOCATION_PREFIX: !Sub "https://${TasksGatewayApi}.execute-api.${AWS::Region}.amazonaws.com/dev/"
       Events:
-        HelloWorld:
-          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+        CreateTask:
+          Type: Api
           Properties:
-            Path: /hello
+            Path: /tasks
+            Method: post
+            RestApiId: !Ref TasksGatewayApi
+
+  GetAllTasksFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: get-all-tasks.lambdaHandler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Environment:
+        Variables:
+          TASKS_TABLE: !Ref TasksTable
+      Events:
+        GetAllTasks:
+          Type: Api
+          Properties:
+            Path: /tasks
             Method: get
+            RestApiId: !Ref TasksGatewayApi
+
+  DeleteTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: delete-task.lambdaHandler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Environment:
+        Variables:
+          TASKS_TABLE: !Ref TasksTable
+      Events:
+        DeleteTask:
+          Type: Api
+          Properties:
+            Path: /tasks/{id}
+            Method: delete
+            RestApiId: !Ref TasksGatewayApi
+
+  GetTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: get-task.lambdaHandler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Environment:
+        Variables:
+          TASKS_TABLE: !Ref TasksTable
+      Events:
+        GetTask:
+          Type: Api
+          Properties:
+            Path: /tasks/{id}
+            Method: get
+            RestApiId: !Ref TasksGatewayApi
+
+  ReplaceTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: replace-task.lambdaHandler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Environment:
+        Variables:
+          TASKS_TABLE: !Ref TasksTable
+      Events:
+        ReplaceTask:
+          Type: Api
+          Properties:
+            Path: /tasks/{id}
+            Method: put
+            RestApiId: !Ref TasksGatewayApi
+
+  TasksTable:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      PrimaryKey:
+        Name: id
+        Type: String
+      ProvisionedThroughput:
+        ReadCapacityUnits: 2
+        WriteCapacityUnits: 2
+
+  WebSiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: true
+      VersioningConfiguration:
+        Status: Enabled
+
+  WebSiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebSiteBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Id: PolicyForCloudFrontPrivateContent
+        Statement:
+          - Sid: AllowCloudFrontServicePrincipal
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Join ['', ['arn:aws:s3:::', !Ref WebSiteBucket, /*]]
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Join ['', ['arn:aws:cloudfront::', !Ref "AWS::AccountId",
+                                           ':distribution/', !Ref CloudFrontDistribution]]
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - DomainName: !GetAtt WebSiteBucket.RegionalDomainName
+            Id: myS3Origin
+            OriginAccessControlId: !GetAtt CloudFrontOriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        Enabled: true
+        DefaultRootObject: index.html
+        HttpVersion: http2
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - DELETE
+            - GET
+            - HEAD
+            - OPTIONS
+            - PATCH
+            - POST
+            - PUT
+          CachedMethods:
+            - GET
+            - HEAD
+          TargetOriginId: myS3Origin
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+          ViewerProtocolPolicy: allow-all
+          MinTTL: 0
+          DefaultTTL: 3600
+          MaxTTL: 86400
+        PriceClass: PriceClass_200
+        Restrictions:
+          GeoRestriction:
+            RestrictionType: whitelist
+            Locations:
+              - US
+              - CA
+              - GB
+              - DE
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+  CloudFrontOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${WebSiteBucket} OAC"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
 
 Outputs:
-  # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
-  # Find out more about other implicit resources you can reference within SAM
-  # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
-  HelloWorldApi:
-    Description: "API Gateway endpoint URL for Prod stage for Hello World function"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
-  HelloWorldFunction:
-    Description: "Hello World Lambda Function ARN"
-    Value: !GetAtt HelloWorldFunction.Arn
-  HelloWorldFunctionIamRole:
-    Description: "Implicit IAM Role created for Hello World function"
-    Value: !GetAtt HelloWorldFunctionRole.Arn
+  APIGatewayEndpoint:
+    Description: "API Gateway endpoint URL for the Tasks API"
+    Value: !Sub "https://${TasksGatewayApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/"
+
+  TasksTable:
+    Value: !Ref TasksTable
+
+  CloudFrontDistributionId:
+    Description: CloudFront Distribution ID for hosting web front end
+    Value: !Ref CloudFrontDistribution
+  CloudFrontDistributionDomainName:
+    Description: CloudFront Distribution Domain Name for accessing web front end
+    Value: !GetAtt CloudFrontDistribution.DomainName
+  WebSiteBucketName:
+    Description: S3 Bucket for hosting web frontend
+    Value: !Ref WebSiteBucket
